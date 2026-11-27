@@ -503,3 +503,44 @@ service cloud.firestore {
     }
   }
 }
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    match /users/{userId}/notes/{noteId} {
+      allow read, delete: if request.auth != null
+                          && request.auth.uid == userId;
+
+      allow create, update: if request.auth != null
+                            && request.auth.uid == userId
+                            && request.resource.data.title is string
+                            && request.resource.data.title.size() > 0
+                            && request.resource.data.title.size() <= 100
+                            && request.resource.data.body is string
+                            && request.resource.data.body.size() > 0
+                            && request.resource.data.body.size() <= 10000;
+    }
+
+    // User can read their own membership, but cannot modify it.
+    match /users/{userId}/billing/{documentId} {
+      allow read: if request.auth != null
+                  && request.auth.uid == userId;
+      allow write: if false;
+    }
+
+    // Subscription records are server-only.
+    match /subscriptions/{subscriptionId} {
+      allow read, write: if false;
+    }
+
+    // Webhook event records are server-only.
+    match /razorpayWebhookEvents/{eventId} {
+      allow read, write: if false;
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
