@@ -1,0 +1,450 @@
+
+"use strict";
+
+const { initializeApp } = require("firebase-admin/app");
+const { getFirestore, Timestamp, FieldValue } = require("firebase-admin/firestore");
+const { onCall, onRequest, HttpsError } = require("firebase-functions/v2/https");
+const { defineSecret, defineString } = require("firebase-functions/params");
+const crypto = require("node:crypto");
+
+initializeApp();
+
+const db = getFirestore();
+const REGION = "asia-south1";
+
+// Secrets are stored in Google Secret Manager.
+const RAZORPAY_KEY_ID = defineString("RAZORPAY_KEY_ID");
+const RAZORPAY_KEY_SECRET = defineSecret("RAZORPAY_KEY_SECRET");
+const RAZORPAY_WEBHOOK_SECRET = defineSecret("RAZORPAY_WEBHOOK_SECRET");
+
+// These are Plan IDs created in Razorpay Dashboard.
+const MONTHLY_PLAN_ID = defineString("RAZORPAY_MONTHLY_PLAN_ID");
+const YEARLY_PLAN_ID = defineString("RAZORPAY_YEARLY_PLAN_ID");
+
+const PLANS = {
+  monthly: {
+    name: "NEXORA Pro Monthly",
+    amount: 19900,
+    currency: "INR",
+    planId: MONTHLY_PLAN_ID
+  },
+  yearly: {
+    name: "NEXORA Pro Yearly",
+    amount: 149900,
+    currency: "INR",
+    planId: YEARLY_PLAN_ID
+  }
+};
+
+function requireAuth(request) {
+  if (!request.auth || !request.auth.uid) {
+    throw new HttpsError("unauthenticated", "Please login first.");
+  }
+  return request.auth.uid;
+}
+
+function safeEqualHex(a, b) {
+  if (
+    typeof a !== "string" ||
+    typeof b !== "string" ||
+    !/^[a-f0-9]+$/i.test(a) ||
+    !/^[a-f0-9]+$/i.test(b)
+  ) {
+    return false;
+  }
+
+  const left = Buffer.from(a, "hex");
+  const right = Buffer.from(b, "hex");
+
+  return left.length === right.length &&
+    crypto.timingSafeEqual(left, right);
+}
+
+function razorpayAuthHeader() {
+  const credentials =
+    `${RAZORPAY_KEY_ID.value()}:${RAZORPAY_KEY_SECRET.value()}`;
+
+  return "Basic " + Buffer.from(credentials).toString("base64");
+}
+
+async function razorpayRequest(path, method, body) {
+  const response = await fetch(
+    `https://api.razorpay.com/v1${path}`,
+    {
+      method,
+      headers: {
+        "Authorization": razorpayAuthHeader(),
+        "Content-Type": "application/json"
+      },
+      ...(body ? { body: JSON.stringify(body) } : {})
+    }
+  );
+
+  const data = await response.json().catch(() => ({}));
+
+  if (!response.ok) {
+    console.error("Razorpay API error:", response.status, data);
+    throw new Error("Razorpay API request failed.");
+  }
+
+  return data;
+}
+
+// 1. Create a Razorpay subscription for the logged-in user.
+exports.createSubscription = onCall(
+  {
+    region: REGION,
+    secrets: [RAZORPAY_KEY_SECRET]
+  },
+  async (request) => {
+    const uid = requireAuth(request);
+    const planKey = request.data?.planKey;
+
+    if (!Object.hasOwn(PLANS, planKey)) {
+      throw new HttpsError("invalid-argument", "Invalid subscription plan.");
+    }
+
+    const plan = PLANS[planKey];
+    const planId = plan.planId.value();
+
+    if (!planId || !planId.startsWith("plan_")) {
+      throw new HttpsError("failed-precondition", "Razorpay Plan ID is not configured.");
+    }
+
+    const userRecord = await require("firebase-admin/auth").getAuth().getUser(uid);
+
+    // Prevent accidental duplicate subscriptions.
+    const membershipRef = db.doc(`users/${uid}/billing/current`);
+    const membershipSnap = await membershipRef.get();
+    const membership = membershipSnap.exists ? membershipSnap.data() : {};
+
+    if (
+      membership.status === "active" &&
+      membership.premiumUntil &&
+      membership.premiumUntil.toMillis() > Date.now()
+    ) {
+      throw new HttpsError(
+        "already-exists",
+        "You already have an active NEXORA Pro membership."
+      );
+    }
+
+    const userSubscriptions = await db
+      .collection("subscriptions")
+      .where("uid", "==", uid)
+      .where("status", "in", ["created", "authenticated", "active", "pending"])
+      .limit(5)
+      .get();
+
+    if (!userSubscriptions.empty) {
+      throw new HttpsError(
+        "failed-precondition",
+        "You already have a subscription in progress. Check your membership first."
+      );
+    }
+
+    const subscription = await razorpayRequest(
+      "/subscriptions",
+      "POST",
+      {
+        plan_id: planId,
+        total_count: planKey === "monthly" ? 120 : 10,
+        quantity: 1,
+        customer_notify: 1,
+        notes: {
+          firebaseUid: uid,
+          planKey,
+          product: "NEXORA"
+        }
+      }
+    );
+
+    await db.doc(`subscriptions/${subscription.id}`).set({
+      uid,
+      planKey,
+      planName: plan.name,
+      amount: plan.amount,
+      currency: plan.currency,
+      razorpaySubscriptionId: subscription.id,
+      razorpayPlanId: planId,
+      status: subscription.status || "created",
+      createdAt: FieldValue.serverTimestamp(),
+      checkoutVerified: false,
+      cancellationRequested: false
+    });
+
+    return {
+      subscriptionId: subscription.id,
+      keyId: RAZORPAY_KEY_ID.value(),
+      planName: plan.name,
+      amount: plan.amount,
+      currency: plan.currency
+    };
+  }
+);
+
+// 2. Verify the Checkout signature.
+// This confirms the checkout response, but does NOT itself grant Premium.
+exports.verifySubscriptionCheckout = onCall(
+  {
+    region: REGION,
+    secrets: [RAZORPAY_KEY_SECRET]
+  },
+  async (request) => {
+    const uid = requireAuth(request);
+
+    const {
+      subscriptionId,
+      paymentId,
+      signature
+    } = request.data || {};
+
+    if (
+      typeof subscriptionId !== "string" ||
+      typeof paymentId !== "string" ||
+      typeof signature !== "string"
+    ) {
+      throw new HttpsError("invalid-argument", "Invalid payment response.");
+    }
+
+    const subscriptionRef = db.doc(`subscriptions/${subscriptionId}`);
+    const subscriptionSnap = await subscriptionRef.get();
+
+    if (!subscriptionSnap.exists) {
+      throw new HttpsError("not-found", "Subscription not found.");
+    }
+
+    const subscription = subscriptionSnap.data();
+
+    if (subscription.uid !== uid) {
+      throw new HttpsError("permission-denied", "Subscription does not belong to you.");
+    }
+
+    const expected = crypto
+      .createHmac("sha256", RAZORPAY_KEY_SECRET.value())
+      .update(`${paymentId}|${subscriptionId}`)
+      .digest("hex");
+
+    if (!safeEqualHex(expected, signature)) {
+      throw new HttpsError("permission-denied", "Payment signature verification failed.");
+    }
+
+    await subscriptionRef.set({
+      checkoutVerified: true,
+      checkoutPaymentId: paymentId,
+      checkoutVerifiedAt: FieldValue.serverTimestamp()
+    }, { merge: true });
+
+    return {
+      verified: true,
+      message: "Checkout signature verified. Waiting for subscription confirmation."
+    };
+  }
+);
+
+// 3. Cancel renewal at the end of the current billing cycle.
+exports.cancelSubscription = onCall(
+  {
+    region: REGION,
+    secrets: [RAZORPAY_KEY_SECRET]
+  },
+  async (request) => {
+    const uid = requireAuth(request);
+    const subscriptionId = request.data?.subscriptionId;
+
+    if (typeof subscriptionId !== "string") {
+      throw new HttpsError("invalid-argument", "Subscription ID is required.");
+    }
+
+    const subscriptionRef = db.doc(`subscriptions/${subscriptionId}`);
+    const subscriptionSnap = await subscriptionRef.get();
+
+    if (!subscriptionSnap.exists) {
+      throw new HttpsError("not-found", "Subscription not found.");
+    }
+
+    const subscription = subscriptionSnap.data();
+
+    if (subscription.uid !== uid) {
+      throw new HttpsError("permission-denied", "Not your subscription.");
+    }
+
+    if (["cancelled", "completed", "expired"].includes(subscription.status)) {
+      return { cancelled: true, message: "Subscription is already ended." };
+    }
+
+    await razorpayRequest(
+      `/subscriptions/${encodeURIComponent(subscriptionId)}/cancel`,
+      "POST",
+      { cancel_at_cycle_end: 1 }
+    );
+
+    await subscriptionRef.set({
+      cancellationRequested: true,
+      cancellationRequestedAt: FieldValue.serverTimestamp()
+    }, { merge: true });
+
+    return {
+      cancelled: true,
+      message: "Cancellation requested. Access remains subject to the paid period."
+    };
+  }
+);
+
+// 4. Razorpay webhook: verify raw body, deduplicate, then update membership.
+exports.razorpayWebhook = onRequest(
+  {
+    region: REGION,
+    secrets: [RAZORPAY_WEBHOOK_SECRET],
+    cors: false
+  },
+  async (req, res) => {
+    if (req.method !== "POST") {
+      return res.status(405).send("Method not allowed");
+    }
+
+    const rawBody = req.rawBody;
+    const receivedSignature = req.get("X-Razorpay-Signature");
+    const eventId = req.get("x-razorpay-event-id");
+
+    if (!Buffer.isBuffer(rawBody) || !receivedSignature || !eventId) {
+      return res.status(400).send("Missing webhook data");
+    }
+
+    const expectedSignature = crypto
+      .createHmac("sha256", RAZORPAY_WEBHOOK_SECRET.value())
+      .update(rawBody)
+      .digest("hex");
+
+    if (!safeEqualHex(expectedSignature, receivedSignature)) {
+      return res.status(401).send("Invalid webhook signature");
+    }
+
+    let event;
+    try {
+      event = JSON.parse(rawBody.toString("utf8"));
+    } catch {
+      return res.status(400).send("Invalid JSON");
+    }
+
+    const supportedEvents = new Set([
+      "subscription.activated",
+      "subscription.charged",
+      "subscription.pending",
+      "subscription.halted",
+      "subscription.cancelled",
+      "subscription.completed",
+      "subscription.paused",
+      "subscription.resumed"
+    ]);
+
+    if (!supportedEvents.has(event.event)) {
+      return res.status(200).send("Event ignored");
+    }
+
+    const entity = event.payload?.subscription?.entity;
+
+    if (!entity?.id) {
+      return res.status(400).send("Subscription entity missing");
+    }
+
+    const subscriptionId = entity.id;
+    const subscriptionRef = db.doc(`subscriptions/${subscriptionId}`);
+    const eventRef = db.doc(`razorpayWebhookEvents/${eventId}`);
+
+    try {
+      await db.runTransaction(async (transaction) => {
+        const eventSnap = await transaction.get(eventRef);
+
+        // Razorpay may retry webhook deliveries. Process each event once.
+        if (eventSnap.exists) return;
+
+        const subscriptionSnap = await transaction.get(subscriptionRef);
+        const stored = subscriptionSnap.exists ? subscriptionSnap.data() : {};
+
+        const uid = stored.uid || entity.notes?.firebaseUid;
+        const planKey = stored.planKey || entity.notes?.planKey;
+
+        if (!uid || !Object.hasOwn(PLANS, planKey)) {
+          throw new Error("No matching NEXORA subscription.");
+        }
+
+        const membershipRef = db.doc(`users/${uid}/billing/current`);
+        const membershipSnap = await transaction.get(membershipRef);
+        const previousMembership = membershipSnap.exists
+          ? membershipSnap.data()
+          : {};
+
+        const status = entity.status || stored.status || "unknown";
+        const now = Timestamp.now();
+
+        const currentEnd = Number(entity.current_end || 0);
+        const currentStart = Number(entity.current_start || 0);
+
+        const premiumUntil = currentEnd > 0
+          ? Timestamp.fromMillis(currentEnd * 1000)
+          : previousMembership.premiumUntil || null;
+
+        const activationEvent = [
+          "subscription.activated",
+          "subscription.charged",
+          "subscription.resumed"
+        ].includes(event.event);
+
+        const validPaidPeriod = activationEvent &&
+          premiumUntil &&
+          premiumUntil.toMillis() > now.toMillis();
+
+        const membershipUpdate = {
+          planKey,
+          planName: PLANS[planKey].name,
+          razorpaySubscriptionId: subscriptionId,
+          status,
+          updatedAt: FieldValue.serverTimestamp()
+        };
+
+        if (validPaidPeriod) {
+          membershipUpdate.isPremium = true;
+          membershipUpdate.premiumUntil = premiumUntil;
+          membershipUpdate.currentPeriodStart = currentStart
+            ? Timestamp.fromMillis(currentStart * 1000)
+            : previousMembership.currentPeriodStart || null;
+        } else {
+          // Preserve any already-paid period. Access expires at premiumUntil.
+          membershipUpdate.isPremium = Boolean(
+            premiumUntil && premiumUntil.toMillis() > now.toMillis()
+          );
+          if (premiumUntil) membershipUpdate.premiumUntil = premiumUntil;
+        }
+
+        transaction.set(membershipRef, membershipUpdate, { merge: true });
+
+        transaction.set(subscriptionRef, {
+          uid,
+          planKey,
+          planName: PLANS[planKey].name,
+          razorpaySubscriptionId: subscriptionId,
+          razorpayPlanId: entity.plan_id || stored.razorpayPlanId || null,
+          status,
+          currentStart: currentStart || null,
+          currentEnd: currentEnd || null,
+          paidCount: Number(entity.paid_count || stored.paidCount || 0),
+          remainingCount: Number(entity.remaining_count || 0),
+          updatedAt: FieldValue.serverTimestamp()
+        }, { merge: true });
+
+        transaction.create(eventRef, {
+          event: event.event,
+          subscriptionId,
+          processedAt: FieldValue.serverTimestamp()
+        });
+      });
+
+      return res.status(200).send("Webhook processed");
+    } catch (error) {
+      console.error("Webhook processing failed:", error);
+      // Non-2xx allows Razorpay to retry after a temporary processing failure.
+      return res.status(500).send("Webhook processing failed");
+    }
+  }
+);
