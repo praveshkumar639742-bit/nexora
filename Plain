@@ -1,1 +1,10 @@
-
+nexora/
+├── index.html
+├── premium.js
+├── firestore.rules
+├── firebase.json
+└── functions/
+    ├── index.js
+    └── package.json
+plan_XXXXXXXXXXXXXX
+plan_YYYYYYYYYYYYYY
