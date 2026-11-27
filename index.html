@@ -799,4 +799,438 @@ updateAuthMode();
 </script>
 </body>
 </html>
-```
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#080d1b">
+  <meta name="description" content="NEXORA — useful online tools in one place.">
+  <title>NEXORA — All-in-One Tools</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #080d1b;
+      --panel: #111a2d;
+      --panel2: #17233a;
+      --text: #f4f7ff;
+      --muted: #9ba9c2;
+      --line: #263653;
+      --accent: #7c6cff;
+      --accent2: #21c9b5;
+      --danger: #ff687d;
+      font-family: Inter, system-ui, -apple-system, Segoe UI, sans-serif;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      color: var(--text);
+      background:
+        radial-gradient(circle at 15% 0%, #252052 0, transparent 32rem),
+        radial-gradient(circle at 95% 20%, #0d3c49 0, transparent 26rem),
+        var(--bg);
+    }
+    button, input, textarea, select { font: inherit; }
+    button { cursor: pointer; }
+    .wrap { width: min(1120px, calc(100% - 32px)); margin: auto; }
+    header {
+      position: sticky; top: 0; z-index: 5;
+      background: #080d1beF; backdrop-filter: blur(16px);
+      border-bottom: 1px solid var(--line);
+    }
+    .nav {
+      min-height: 70px; display: flex; align-items: center;
+      justify-content: space-between; gap: 16px;
+    }
+    .brand { font-size: 1.35rem; font-weight: 850; letter-spacing: 2px; }
+    .brand span { color: var(--accent2); }
+    .navlinks { display: flex; align-items: center; gap: 20px; }
+    a { color: inherit; text-decoration: none; }
+    .navlinks a { color: var(--muted); font-size: .94rem; }
+    .navlinks a:hover { color: white; }
+    .user-area { display: flex; align-items: center; gap: 10px; }
+    .muted { color: var(--muted); }
+    .btn {
+      border: 1px solid var(--line); border-radius: 10px;
+      padding: 10px 15px; color: white; background: var(--panel2);
+      transition: .2s;
+    }
+    .btn:hover { transform: translateY(-1px); border-color: var(--accent); }
+    .btn.primary {
+      border: 0; font-weight: 700;
+      background: linear-gradient(120deg, var(--accent), #4e9cff);
+    }
+    .btn.small { padding: 8px 11px; font-size: .88rem; }
+    .hero { padding: 72px 0 48px; text-align: center; }
+    .eyebrow { color: var(--accent2); font-weight: 750; letter-spacing: 2px; }
+    h1 { font-size: clamp(2.5rem, 7vw, 4.8rem); line-height: 1.05; margin: 14px 0; }
+    h1 span { color: #9a8fff; }
+    .hero p { max-width: 650px; margin: 16px auto 24px; color: var(--muted); line-height: 1.7; }
+    .search {
+      width: min(540px, 100%); padding: 15px 18px; border-radius: 13px;
+      border: 1px solid var(--line); color: white; background: #111a2ddd;
+      outline: none;
+    }
+    .search:focus, input:focus, textarea:focus, select:focus {
+      border-color: var(--accent); outline: 2px solid #7c6cff33;
+    }
+    section { padding: 28px 0 52px; }
+    .section-head {
+      display: flex; justify-content: space-between; align-items: end;
+      gap: 16px; margin-bottom: 20px;
+    }
+    h2 { margin: 0 0 7px; font-size: 1.8rem; }
+    .filters { display: flex; gap: 8px; flex-wrap: wrap; margin: 18px 0 24px; }
+    .filter { color: var(--muted); }
+    .filter.active { background: var(--accent); border-color: var(--accent); color: white; }
+    .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+    .tool-card, .panel {
+      border: 1px solid var(--line); border-radius: 17px;
+      background: linear-gradient(145deg, #15213a, #0e1729);
+      padding: 20px;
+    }
+    .tool-card { cursor: pointer; transition: .2s; }
+    .tool-card:hover { transform: translateY(-4px); border-color: #7468ff; }
+    .tool-icon { font-size: 1.8rem; }
+    .tool-card h3 { margin: 12px 0 6px; }
+    .tool-card p { margin: 0; color: var(--muted); line-height: 1.5; font-size: .92rem; }
+    .workspace { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    .panel h3 { margin: 0 0 14px; }
+    .field { display: grid; gap: 7px; margin: 12px 0; }
+    label { color: var(--muted); font-size: .9rem; }
+    input, textarea, select {
+      width: 100%; color: white; background: #091225;
+      border: 1px solid var(--line); border-radius: 10px; padding: 12px;
+    }
+    textarea { min-height: 130px; resize: vertical; }
+    .actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+    .output {
+      white-space: pre-wrap; overflow-wrap: anywhere; min-height: 70px;
+      background: #091225; border: 1px solid var(--line);
+      border-radius: 10px; padding: 12px; color: #dce5ff;
+    }
+    .stats { display: flex; gap: 16px; flex-wrap: wrap; color: var(--muted); font-size: .9rem; }
+    .hidden { display: none !important; }
+    .note-list { display: grid; gap: 9px; margin-top: 15px; }
+    .note-item {
+      display: flex; justify-content: space-between; gap: 12px;
+      padding: 12px; border-radius: 10px; background: #091225;
+      border: 1px solid var(--line);
+    }
+    .note-item button { flex-shrink: 0; }
+    .status { min-height: 22px; color: var(--accent2); font-size: .9rem; margin-top: 8px; }
+    footer { border-top: 1px solid var(--line); padding: 28px 0; color: var(--muted); }
+    .modal {
+      position: fixed; inset: 0; z-index: 10; display: grid; place-items: center;
+      padding: 16px; background: #020611cc;
+    }
+    .modal-box {
+      width: min(420px, 100%); padding: 24px; border-radius: 18px;
+      border: 1px solid var(--line); background: #111a2d;
+    }
+    .modal-top { display: flex; justify-content: space-between; align-items: center; }
+    .modal-top h2 { font-size: 1.4rem; }
+    .error { color: var(--danger); }
+    @media (max-width: 800px) {
+      .grid { grid-template-columns: repeat(2, 1fr); }
+      .workspace { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 560px) {
+      .navlinks { display: none; }
+      .grid { grid-template-columns: 1fr; }
+      .hero { padding-top: 50px; }
+      .section-head { align-items: start; flex-direction: column; }
+      .user-area .muted { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="wrap nav">
+      <a class="brand" href="#">NEX<span>ORA</span></a>
+      <nav class="navlinks">
+        <a href="#tools">Tools</a>
+        <a href="#workspace">Workspace</a>
+        <a href="#about">About</a>
+      </nav>
+      <div class="user-area">
+        <span id="userLabel" class="muted">Guest mode</span>
+        <button id="authButton" class="btn primary small">Login / Sign up</button>
+        <button id="logoutButton" class="btn small hidden">Logout</button>
+      </div>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <section class="hero">
+      <div class="eyebrow">YOUR DIGITAL TOOLKIT</div>
+      <h1>Everything you need.<br><span>One smart workspace.</span></h1>
+      <p>Fast, simple and useful online tools for your everyday productivity. Sign in to save your notes securely in the cloud.</p>
+      <input id="searchInput" class="search" type="search" placeholder="Search tools...">
+    </section>
+
+    <section id="tools">
+      <div class="section-head">
+        <div><h2>Explore Tools</h2><div class="muted">Choose a tool and get things done.</div></div>
+      </div>
+      <div class="filters">
+        <button class="btn small filter active" data-filter="all">All tools</button>
+        <button class="btn small filter" data-filter="text">Text</button>
+        <button class="btn small filter" data-filter="utility">Utilities</button>
+        <button class="btn small filter" data-filter="productivity">Productivity</button>
+      </div>
+      <div class="grid" id="toolGrid">
+        <article class="tool-card" data-category="text" data-name="word counter text">
+          <div class="tool-icon">📝</div><h3>Word Counter</h3>
+          <p>Count words, characters, sentences and paragraphs.</p>
+        </article>
+        <article class="tool-card" data-category="text" data-name="text converter uppercase lowercase title case">
+          <div class="tool-icon">🔠</div><h3>Text Converter</h3>
+          <p>Convert text to uppercase, lowercase or title case.</p>
+        </article>
+        <article class="tool-card" data-category="utility" data-name="calculator math">
+          <div class="tool-icon">🧮</div><h3>Calculator</h3>
+          <p>Calculate arithmetic expressions safely.</p>
+        </article>
+        <article class="tool-card" data-category="utility" data-name="password generator security">
+          <div class="tool-icon">🔐</div><h3>Password Generator</h3>
+          <p>Generate strong random passwords in your browser.</p>
+        </article>
+        <article class="tool-card" data-category="utility" data-name="unit converter length weight">
+          <div class="tool-icon">📏</div><h3>Unit Converter</h3>
+          <p>Convert common length and weight measurements.</p>
+        </article>
+        <article class="tool-card" data-category="productivity" data-name="quick notes cloud notes">
+          <div class="tool-icon">📒</div><h3>Quick Notes</h3>
+          <p>Write notes and sync them to your Firebase account.</p>
+        </article>
+      </div>
+      <p id="noResults" class="muted hidden">No matching tools found.</p>
+    </section>
+
+    <section id="workspace">
+      <div class="section-head">
+        <div><h2>Tool Workspace</h2><div class="muted">Your selected tool opens here.</div></div>
+      </div>
+
+      <div class="panel" id="wordTool">
+        <h3>📝 Word Counter</h3>
+        <div class="field"><label for="wordText">Enter your text</label><textarea id="wordText" placeholder="Start typing or paste your text..."></textarea></div>
+        <div class="stats">
+          <span>Words: <strong id="wordCount">0</strong></span>
+          <span>Characters: <strong id="charCount">0</strong></span>
+          <span>Sentences: <strong id="sentenceCount">0</strong></span>
+          <span>Paragraphs: <strong id="paragraphCount">0</strong></span>
+        </div>
+      </div>
+
+      <div class="panel hidden" id="textTool">
+        <h3>🔠 Text Converter</h3>
+        <div class="field"><label for="convertText">Your text</label><textarea id="convertText" placeholder="Enter text..."></textarea></div>
+        <div class="actions">
+          <button class="btn primary" data-case="upper">UPPERCASE</button>
+          <button class="btn" data-case="lower">lowercase</button>
+          <button class="btn" data-case="title">Title Case</button>
+          <button class="btn" data-case="sentence">Sentence case</button>
+        </div>
+        <div class="field"><label>Result</label><div class="output" id="convertOutput"></div></div>
+        <button class="btn small" id="copyConvert">Copy result</button>
+      </div>
+
+      <div class="panel hidden" id="calculatorTool">
+        <h3>🧮 Calculator</h3>
+        <div class="field"><label for="calcInput">Expression (example: 12 * (5 + 3))</label><input id="calcInput" placeholder="Enter a math expression">
+        </div>
+        <button class="btn primary" id="calculateButton">Calculate</button>
+        <div class="field"><label>Result</label><div class="output" id="calcOutput">Your result will appear here.</div></div>
+      </div>
+
+      <div class="panel hidden" id="passwordTool">
+        <h3>🔐 Password Generator</h3>
+        <div class="field"><label for="passwordLength">Password length: <strong id="lengthValue">16</strong></label><input id="passwordLength" type="range" min="8" max="64" value="16"></div>
+        <div class="actions">
+          <label><input id="includeUpper" type="checkbox" checked> Uppercase</label>
+          <label><input id="includeLower" type="checkbox" checked> Lowercase</label>
+          <label><input id="includeNumbers" type="checkbox" checked> Numbers</label>
+          <label><input id="includeSymbols" type="checkbox" checked> Symbols</label>
+        </div>
+        <button class="btn primary" id="generatePassword">Generate password</button>
+        <div class="field"><label>Generated password</label><input id="passwordOutput" readonly></div>
+        <button class="btn small" id="copyPassword">Copy password</button>
+      </div>
+
+      <div class="panel hidden" id="unitTool">
+        <h3>📏 Unit Converter</h3>
+        <div class="field"><label for="unitValue">Value</label><input id="unitValue" type="number" value="1" step="any"></div>
+        <div class="field"><label for="unitType">Conversion</label>
+          <select id="unitType">
+            <option value="km-mi">Kilometers → Miles</option>
+            <option value="mi-km">Miles → Kilometers</option>
+            <option value="kg-lb">Kilograms → Pounds</option>
+            <option value="lb-kg">Pounds → Kilograms</option>
+            <option value="cm-in">Centimeters → Inches</option>
+            <option value="in-cm">Inches → Centimeters</option>
+          </select>
+        </div>
+        <button class="btn primary" id="convertUnit">Convert</button>
+        <div class="field"><label>Result</label><div class="output" id="unitOutput">1 km = 0.621371 mi</div></div>
+      </div>
+
+      <div class="panel hidden" id="notesTool">
+        <h3>📒 Quick Notes <span class="muted" style="font-size:.8rem">Cloud sync</span></h3>
+        <p id="notesHint" class="muted">Sign in to save notes to your private account. Notes are not shared with other users.</p>
+        <div class="field"><label for="noteTitle">Note title</label><input id="noteTitle" maxlength="100" placeholder="e.g. My project ideas"></div>
+        <div class="field"><label for="noteBody">Note content</label><textarea id="noteBody" maxlength="10000" placeholder="Write your note..."></textarea></div>
+        <button class="btn primary" id="saveNote">Save note</button>
+        <div id="noteStatus" class="status" role="status"></div>
+        <div class="note-list" id="noteList"></div>
+      </div>
+    </section>
+
+    <section id="about">
+      <div class="panel">
+        <h2>About NEXORA</h2>
+        <p class="muted">NEXORA brings practical everyday tools together in one clean workspace. This is the first MVP release. More tools and account features can be added as the platform grows.</p>
+      </div>
+    </section>
+  </main>
+
+  <footer><div class="wrap">© <span id="year"></span> NEXORA. Built for productivity.</div></footer>
+
+  <div id="authModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="authTitle">
+    <div class="modal-box">
+      <div class="modal-top">
+        <h2 id="authTitle">Welcome to NEXORA</h2>
+        <button id="closeAuth" class="btn small" aria-label="Close">✕</button>
+      </div>
+      <p class="muted" id="authDescription">Sign in or create your account.</p>
+      <form id="authForm">
+        <div class="field"><label for="authEmail">Email address</label><input id="authEmail" type="email" autocomplete="email" required></div>
+        <div class="field"><label for="authPassword">Password</label><input id="authPassword" type="password" minlength="6" autocomplete="current-password" required></div>
+        <button class="btn primary" id="authSubmit" type="submit" style="width:100%">Login</button>
+      </form>
+      <div class="actions">
+        <button id="toggleAuthMode" class="btn small">Create new account</button>
+        <button id="forgotPassword" class="btn small">Forgot password?</button>
+      </div>
+      <p id="authStatus" class="status" role="status"></p>
+    </div>
+  </div>
+
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/13.4.0/firebase-app.js";
+    import {
+      getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword,
+      onAuthStateChanged, signOut, sendPasswordResetEmail
+    } from "https://www.gstatic.com/firebasejs/13.4.0/firebase-auth.js";
+    import {
+      getFirestore, collection, addDoc, deleteDoc, doc, onSnapshot,
+      query, orderBy, serverTimestamp
+    } from "https://www.gstatic.com/firebasejs/13.4.0/firebase-firestore.js";
+
+    // Replace every value below with the config from Firebase Console.
+    const firebaseConfig = {
+      apiKey: "YOUR_API_KEY",
+      authDomain: "YOUR_PROJECT_ID.firebaseapp.com",
+      projectId: "YOUR_PROJECT_ID",
+      storageBucket: "YOUR_PROJECT_ID.firebasestorage.app",
+      messagingSenderId: "YOUR_MESSAGING_SENDER_ID",
+      appId: "YOUR_APP_ID"
+    };
+
+    const configIsReady = Object.values(firebaseConfig).every(
+      value => typeof value === "string" &&
+        value.length > 0 &&
+        !value.startsWith("YOUR_")
+    );
+
+    let auth = null;
+    let db = null;
+    let currentUser = null;
+    let unsubscribeNotes = null;
+    let authMode = "login";
+    let selectedTool = "wordTool";
+
+    const $ = id => document.getElementById(id);
+    const showStatus = (id, message, isError = false) => {
+      const element = $(id);
+      element.textContent = message;
+      element.classList.toggle("error", isError);
+    };
+
+    // Tool navigation
+    const toolIds = ["wordTool", "textTool", "calculatorTool", "passwordTool", "unitTool", "notesTool"];
+    function openTool(id) {
+      selectedTool = id;
+      toolIds.forEach(toolId => $(toolId).classList.toggle("hidden", toolId !== id));
+      $("workspace").scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+
+    const cards = [...document.querySelectorAll(".tool-card")];
+    cards.forEach((card, index) => {
+      card.addEventListener("click", () => openTool(toolIds[index]));
+      card.addEventListener("keydown", event => {
+        if (event.key === "Enter" || event.key === " ") openTool(toolIds[index]);
+      });
+      card.tabIndex = 0;
+      card.setAttribute("role", "button");
+    });
+
+    $("searchInput").addEventListener("input", event => {
+      const term = event.target.value.trim().toLowerCase();
+      let visibleCount = 0;
+      cards.forEach(card => {
+        const matches = card.dataset.name.includes(term) ||
+          card.textContent.toLowerCase().includes(term);
+        card.classList.toggle("hidden", !matches);
+        if (matches) visibleCount++;
+      });
+      $("noResults").classList.toggle("hidden", visibleCount > 0);
+    });
+
+    document.querySelectorAll(".filter").forEach(button => {
+      button.addEventListener("click", () => {
+        document.querySelectorAll(".filter").forEach(item => item.classList.remove("active"));
+        button.classList.add("active");
+        const category = button.dataset.filter;
+        let count = 0;
+        cards.forEach(card => {
+          const visible = category === "all" || card.dataset.category === category;
+          card.classList.toggle("hidden", !visible);
+          if (visible) count++;
+        });
+        $("noResults").classList.toggle("hidden", count > 0);
+        $("searchInput").value = "";
+      });
+    });
+
+    // Word counter
+    $("wordText").addEventListener("input", () => {
+      const text = $("wordText").value;
+      const words = text.trim() ? text.trim().split(/\s+/u).length : 0;
+      const sentences = text.trim() ? (text.match(/[.!?]+(?=\s|$)/g) || []).length : 0;
+      const paragraphs = text.trim() ? text.trim().split(/\n\s*\n/u).length : 0;
+      $("wordCount").textContent = words;
+      $("charCount").textContent = text.length;
+      $("sentenceCount").textContent = sentences;
+      $("paragraphCount").textContent = paragraphs;
+    });
+
+    // Text converter
+    document.querySelectorAll("[data-case]").forEach(button => {
+      button.addEventListener("click", () => {
+        const text = $("convertText").value;
+        const mode = button.dataset.case;
+        let result = text;
+        if (mode === "upper") result = text.toUpperCase();
+        if (mode === "lower") result = text.toLowerCase();
+        if (mode === "title") {
+          result = text.toLowerCase().replace(/\b[\p{L}\p{N}]/gu, char => char.toUpperCase());
+        }
+        if (mode === "sentence") {
+          result = text.toLowerCase().replace(/(^\s*[a-z]|\.\s+[a-z]|[!?]\s+[a-z])/g,
+            match => match.toUpperCase());
+        }
+        $("convertOutpu
